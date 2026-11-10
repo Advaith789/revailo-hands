@@ -1,0 +1,37 @@
+# Runtime settings for the local reproduction.
+#
+# Production reads the same keys from SSM Parameter Store. Precedence here is
+# config/defaults.py  <  this file  <  TAKEOFF_<SECTION>__<KEY> environment
+# variables. See takeoff/config/loader.py.
+
+[app]
+name = "takeoff"
+region = "us-east-2"
+timezone = "America/Chicago"
+
+[vision]
+max_in_flight = 10
+shared_gate = true
+timeout_s = 2.0
+
+[scheduler]
+pool_size = 24
+per_job_concurrency = 10
+completion_timeout_s = 20.0
+poll_interval_s = 0.02
+
+[retry]
+max_attempts = 4
+backoff_base_s = 0.01
+backoff_cap_s = 0.5
+jitter = true
+
+[cache]
+measurement_ttl_s = 3600
+status_ttl_s = 0.25
+
+[flags]
+measurement_cache = true
+progress_events = true
+strict_schema = true
+legacy_runner = false
