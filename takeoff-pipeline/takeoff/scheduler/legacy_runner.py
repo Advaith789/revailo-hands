@@ -12,8 +12,9 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import settings
 from ..core.errors import PermanentError, TransientError
 from ..services import vision
-from ..storage import repo_jobs, repo_pages
+from ..storage import repo_jobs
 from ..workers import handler
+from . import completion
 
 MAX_ATTEMPTS = 4
 POOL_SIZE = 24
@@ -34,9 +35,7 @@ def _run_page(db, job, page_no, gate):
             break
         except TransientError:
             time.sleep(0.01 * (2 ** (attempt - 1)))
-    repo_pages.set_status(db, job.job_id, page_no, "failed")
-    repo_jobs.increment_failed(db, job.job_id)
-    return False
+    return not repo_jobs.record_page_failure(db, job.job_id, page_no)
 
 
 class _NullGate(object):
@@ -62,7 +61,7 @@ def start_and_wait(db, job, create=True):
     deadline = time.time() + settings.scheduler.completion_timeout_s
     while time.time() < deadline:
         row = repo_jobs.get(db, job.job_id)
-        if row["pages_done"] == row["total_pages"]:
+        if completion.is_settled(row):
             repo_jobs.set_status(db, job.job_id, "complete")
             return repo_jobs.get(db, job.job_id)
         time.sleep(0.02)

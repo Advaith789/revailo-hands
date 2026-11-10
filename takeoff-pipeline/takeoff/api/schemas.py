@@ -49,10 +49,12 @@ def parse_submit(payload):
     return SubmitRequest(job_id=job_id, total_pages=total_pages, scale=scale, sheet_size=sheet_size)
 
 
-def set_fingerprint(sheet_size, total_pages):
+def set_fingerprint(sheet_size, total_pages, scale):
     """Stable identity for an uploaded set. Two uploads of the same set must
-    fingerprint the same way or the measurement memo never hits."""
-    raw = "{}|{}".format(sheet_size, int(total_pages))
+    fingerprint the same way, and two different sets must not. A set is
+    described by its sheet size, drawing scale and page count (README), so
+    all three go in; the scale used to be missing."""
+    raw = "{}|{}|{}".format(sheet_size, int(scale), int(total_pages))
     return hashlib.sha1(raw.encode("ascii")).hexdigest()[:16]
 
 
@@ -62,5 +64,5 @@ def build_job(job_id, total_pages, scale=48, sheet_size="ARCH_D"):
         total_pages=int(total_pages),
         scale=int(scale),
         sheet_size=str(sheet_size),
-        fingerprint=set_fingerprint(sheet_size, total_pages),
+        fingerprint=set_fingerprint(sheet_size, total_pages, scale),
     )

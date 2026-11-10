@@ -7,6 +7,7 @@ being billed again. Production backs this with a DynamoDB table with TTL;
 locally it is a dict.
 """
 
+import hashlib
 import threading
 import time
 
@@ -19,9 +20,25 @@ _hits = 0
 _misses = 0
 
 
+# Bump when the meaning of a key changes, so entries written under the old
+# scheme (still in the production table until their TTL) are never read.
+KEY_VERSION = "v2"
+
+
 def key_for(job, page):
-    """Memo key for one page of a set."""
-    return "{}:{}".format(job.fingerprint, page.page_no)
+    """Memo key for one page of a set.
+
+    Keyed on the rendered bytes, which is exactly what the vision service's
+    answer depends on ("the same bytes always produce the same number"). Two
+    pages share a key if and only if they would get the same measurement, so
+    a hit can never return another drawing's number, whatever changed
+    between uploads (scale, sheet size, a revised drawing), while a genuine
+    re-upload of the same set still hits. The previous key,
+    ``fingerprint:page_no``, left the scale out of the fingerprint and served
+    a set's old measurements after it was re-run at a corrected scale.
+    """
+    digest = hashlib.blake2b(page.data, digest_size=16).hexdigest()
+    return "{}:{}".format(KEY_VERSION, digest)
 
 
 def get(key):

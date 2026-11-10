@@ -1,12 +1,20 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..config import settings
-from ..core import units
+from ..core import clock, units
 
 
 def iso_utc(stamp):
-    """Render a stored timestamp for the API (RFC 3339, UTC)."""
-    return datetime.fromisoformat(stamp).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """Render a stored timestamp for the API (RFC 3339, UTC).
+
+    Stamps carry an explicit UTC offset. A naive stamp is a legacy row
+    written in the region's wall clock; convert it rather than relabel it
+    (relabelling was the bug: Chicago time with a Z on the end).
+    """
+    when = datetime.fromisoformat(stamp)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=clock.REGION_TZ)
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def progress_pct(row):

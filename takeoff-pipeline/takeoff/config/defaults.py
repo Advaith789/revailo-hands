@@ -34,7 +34,9 @@ DEFAULTS = {
         "progress_events": True,
         "strict_schema": True,
         "legacy_runner": False,
-        "shared_gate": False,
+        # Fail safe: the vision limit is account-wide, so a missing or
+        # misplaced setting must not fall back to per-job gates.
+        "shared_gate": True,
     },
     "display": {
         "units": "sqft",

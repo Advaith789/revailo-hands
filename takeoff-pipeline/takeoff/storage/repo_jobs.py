@@ -74,3 +74,29 @@ def list_by_status(db, status):
         (status,),
     )
     return [_row(r) for r in rows]
+
+
+def record_page_failure(db, job_id, page_no):
+    """Mark a page failed and count it, unless its result is already stored.
+
+    A page can exhaust its retries after its result was stored (the store
+    succeeded, a later step such as the progress event kept failing). That
+    page is done, not failed: counting it as both would push
+    ``pages_done + pages_failed`` past ``total_pages``. Returns True if the
+    page was counted as failed.
+    """
+    with db.tx() as cur:
+        stored = cur.execute(
+            "SELECT 1 FROM results WHERE job_id = ? AND page_no = ?", (job_id, page_no)
+        ).fetchone()
+        if stored is not None:
+            return False
+        cur.execute(
+            "UPDATE pages SET status = 'failed' WHERE job_id = ? AND page_no = ?",
+            (job_id, page_no),
+        )
+        cur.execute(
+            "UPDATE jobs SET pages_failed = pages_failed + 1, updated_at = ? WHERE job_id = ?",
+            (clock.stamp(), job_id),
+        )
+        return True

@@ -97,4 +97,9 @@ class Database(object):
         return rows[0] if rows else None
 
     def close(self):
-        self._conn.close()
+        # Take the connection lock: closing a sqlite3 connection while another
+        # thread is inside execute() is a use-after-free in the C module
+        # (segfault observed). After close, late writers get a Python
+        # ProgrammingError instead.
+        with self._lock:
+            self._conn.close()

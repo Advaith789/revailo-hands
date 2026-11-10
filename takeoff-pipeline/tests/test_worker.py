@@ -37,14 +37,31 @@ def test_render_is_stable_for_the_same_page():
     assert render.render_page(job, 4).data == render.render_page(job, 4).data
 
 
-def test_receipts_are_unique_per_invocation():
-    """Two deliveries of the same page must not collide in the results
-    table, otherwise the second delivery is silently dropped."""
+def test_receipts_are_stable_across_deliveries():
+    """Two deliveries of the same page must collide in the results table:
+    the second delivery is the same page, and dropping it is the point of
+    the receipt.
+
+    This test used to assert the opposite (``a != b``). That made every
+    retried page a second result row, so the stored total counted the page
+    twice. See REPORT.md, D1.
+    """
     job = build_job("w-4", 10)
     a = _ctx(job, 5, attempt=1, rid="aaa").receipt
     b = _ctx(job, 5, attempt=2, rid="bbb").receipt
-    assert a != b
+    assert a == b
+    assert a != _ctx(job, 6, attempt=1, rid="aaa").receipt
     assert len(a) == 24
+
+
+def test_redelivered_page_is_stored_and_counted_once(db):
+    job = build_job("w-6", 3)
+    repo_jobs.create(db, job)
+    with patch("takeoff.workers.page_worker.progress.publish"):
+        process_page(db, _ctx(job, 2, attempt=1, rid="first"))
+        process_page(db, _ctx(job, 2, attempt=2, rid="second"))
+    assert len(repo_results.rows(db, "w-6")) == 1
+    assert repo_jobs.get(db, "w-6")["pages_done"] == 1
 
 
 def test_handler_builds_a_context_with_a_request_id(db):

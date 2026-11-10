@@ -11,7 +11,6 @@ timezone = "America/Chicago"
 
 [vision]
 max_in_flight = 10
-shared_gate = true
 timeout_s = 2.0
 
 [scheduler]
@@ -35,3 +34,6 @@ measurement_cache = true
 progress_events = true
 strict_schema = true
 legacy_runner = false
+# One gate for every job in the process. The vision limit is account-wide;
+# per-job gates let N concurrent jobs put 10*N calls in flight (throttling).
+shared_gate = true

@@ -5,8 +5,10 @@ In production every page is one Lambda invocation. This wraps
 it with the invocation id CloudWatch shows as RequestId, run.
 """
 
+from ..config import settings
 from ..core import ids
 from ..core.models import PageContext
+from ..services import limiter
 from ..util.logging import get_logger
 from . import page_worker
 
@@ -33,5 +35,10 @@ def lambda_handler(event, context, db):
         event["job_id"], int(event["total_pages"]), int(event.get("scale", 48)),
         event.get("sheet_size", "ARCH_D"),
     )
-    measurement = invoke(db, job, int(event["page_no"]), int(event.get("attempt", 1)), event.get("gate"))
+    # A Lambda event is JSON: it can never carry a gate object, so a deployed
+    # invocation used to reach the vision call with gate=None and crash on
+    # every memo miss. Use the account-wide vision gate. (In production that
+    # is the token table, not an in-process semaphore; see REPORT.md.)
+    gate = event.get("gate") or limiter.shared("vision", settings.vision.max_in_flight)
+    measurement = invoke(db, job, int(event["page_no"]), int(event.get("attempt", 1)), gate)
     return {"job_id": job.job_id, "page_no": int(event["page_no"]), "area_sqft": measurement.area_sqft}

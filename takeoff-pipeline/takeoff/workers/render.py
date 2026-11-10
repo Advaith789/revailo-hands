@@ -36,7 +36,16 @@ def sheet_label(page_no):
     """Sheet label for a page, e.g. page 1 is A-01 and page 150 is B-51.
 
     The series letter advances every SHEETS_PER_SERIES sheets and the number
-    is the sheet's position within its series.
+    is the sheet's 1-based position within its series. Series A starts at
+    page 1 (there is no page 0); every later series starts at a multiple of
+    SHEETS_PER_SERIES, so B is pages 100-199 (B-01..B-100).
+
+    The number used to be ``page_no % (SHEETS_PER_SERIES - 1)``: a modulus
+    of 99 over series of 100 pages, which wraps once per series and gave two
+    pages the same label (100 and 199 were both B-01; also 299, 399, 499).
+    Same label means same bytes, so the second page got the first page's
+    measurement.
     """
-    series = chr(ord("A") + page_no // SHEETS_PER_SERIES)
-    return "{}-{:02d}".format(series, page_no % (SHEETS_PER_SERIES - 1))
+    series = page_no // SHEETS_PER_SERIES
+    first_page = max(1, series * SHEETS_PER_SERIES)
+    return "{}-{:02d}".format(chr(ord("A") + series), page_no - first_page + 1)

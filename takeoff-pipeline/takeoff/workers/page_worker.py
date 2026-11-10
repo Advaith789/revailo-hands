@@ -7,6 +7,7 @@ Raises on any failure; the scheduler decides whether to retry.
 
 from ..cache import memo
 from ..config import flags
+from ..core import clock
 from ..services import vision_client
 from ..storage import repo_jobs, repo_pages, repo_results
 from ..util.logging import get_logger
@@ -31,15 +32,17 @@ def process_page(db, ctx):
         if key is not None:
             memo.put(key, measurement)
 
-    stored = repo_results.record(
-        db, ctx.receipt, job.job_id, ctx.page_no, measurement.area_sqft, measurement.source
+    # Result, counter and page status move together; a redelivery of a page
+    # that is already stored changes nothing.
+    repo_results.record_and_advance(
+        db, ctx.receipt, job.job_id, ctx.page_no, measurement.area_sqft, measurement.source,
+        stamp=clock.stamp(),
     )
-    if stored:
-        repo_jobs.increment_done(db, job.job_id)
 
+    # The progress event is published after the result is durable. If it
+    # fails, the scheduler retries the page; that retry is now harmless.
     row = repo_jobs.get(db, job.job_id)
     progress.publish(job.job_id, ctx.page_no, row["pages_done"], row["total_pages"])
 
-    repo_pages.set_status(db, job.job_id, ctx.page_no, "done")
     log.debug("page %s/%s done (attempt %s)", job.job_id, ctx.page_no, ctx.attempt)
     return measurement

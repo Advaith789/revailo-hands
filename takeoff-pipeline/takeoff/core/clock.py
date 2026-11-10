@@ -28,8 +28,13 @@ def wall_now():
 
 
 def stamp():
-    """Timestamp string for stored rows."""
-    return wall_now().isoformat(timespec="seconds")
+    """Timestamp string for stored rows: UTC with an explicit offset.
+
+    Stored rows cross a boundary (the API reports them as UTC), so they use
+    UTC, not the region wall clock. Rows written before this change are
+    naive region wall-clock times; ``serializers.iso_utc`` still reads them.
+    """
+    return utc_now().isoformat(timespec="seconds")
 
 
 def monotonic():

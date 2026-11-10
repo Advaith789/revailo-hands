@@ -12,7 +12,7 @@ from ..config import flags, settings
 from ..core import retry
 from ..core.errors import PermanentError, TransientError
 from ..services import limiter, metrics
-from ..storage import repo_jobs, repo_pages
+from ..storage import repo_jobs
 from ..util.logging import get_logger
 from ..workers import handler
 from . import backoff
@@ -42,9 +42,8 @@ def run_page(db, job, page_no, gate, policy):
             metrics.incr("page.retry")
             time.sleep(backoff.delay(policy, attempt))
     log.info("page %s/%s failed: %s", job.job_id, page_no, last_error)
-    repo_pages.set_status(db, job.job_id, page_no, "failed")
-    repo_jobs.increment_failed(db, job.job_id)
-    return False
+    # If the result was stored before a later step failed, the page is done.
+    return not repo_jobs.record_page_failure(db, job.job_id, page_no)
 
 
 def fan_out(db, job):

@@ -42,4 +42,4 @@ class PageContext(object):
 
     @property
     def receipt(self):
-        return ids.receipt(self.job.job_id, self.page_no, self.invocation_id)
+        return ids.receipt(self.job.job_id, self.page_no)

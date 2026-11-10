@@ -1,0 +1,59 @@
+==================== ORIGINAL (<tmp>)
+=========================== short test summary info ============================
+FAILED tests/test_regressions.py::test_d1_a_failed_progress_event_does_not_count_the_page_twice
+FAILED tests/test_regressions.py::test_d2_job_with_an_unrenderable_page_settles_promptly
+FAILED tests/test_regressions.py::test_d2_settled_accounts_for_failed_pages
+FAILED tests/test_regressions.py::test_d2_a_job_is_never_reported_complete_with_pages_outstanding
+FAILED tests/test_regressions.py::test_d3_memo_key_differs_when_the_drawing_scale_differs
+FAILED tests/test_regressions.py::test_d3_resubmitting_a_set_at_a_new_scale_gets_new_measurements
+FAILED tests/test_regressions.py::test_d4_flags_in_shipped_settings_are_in_the_flags_section
+FAILED tests/test_regressions.py::test_d4_shared_vision_gate_is_on_with_shipped_settings
+FAILED tests/test_regressions.py::test_d4_concurrent_jobs_stay_under_the_account_wide_vision_limit
+FAILED tests/test_regressions.py::test_d5_every_page_of_a_full_size_set_is_a_distinct_drawing
+FAILED tests/test_regressions.py::test_d6_api_timestamps_are_actually_utc - a...
+FAILED tests/test_regressions.py::test_e2e_concurrent_mixed_jobs_match_ground_truth
+FAILED tests/test_regressions.py::test_d7_closing_the_database_waits_for_an_in_flight_write
+FAILED tests/test_regressions.py::test_d8_lambda_handler_works_with_a_json_only_event
+FAILED tests/test_worker.py::test_receipts_are_stable_across_deliveries - Ass...
+FAILED tests/test_worker.py::test_redelivered_page_is_stored_and_counted_once
+16 failed, 28 passed in 18.13s
+[D5] drawings that render identically within one 500-page set
+  4 pages share bytes with an earlier page: p199=p100 (B-01), p299=p200 (C-02), p399=p300 (D-03), p499=p400 (E-04)
+[D6] API created_at vs real UTC
+  created_at=2026-11-10T10:31:27Z  skew -6.0 h
+[D3] same set re-run at a corrected scale within the memo TTL
+  scale 96 total: reported 9,397.14  truth 8,801.79  error +6.76%
+[D4] 10 different ~120-page sets submitted together (a busy morning)
+  flags.SHARED_GATE = False
+  vision 429s: 2378  extra attempts: 2142  pages missing from totals (excl. corrupt): 246 of 1235  wall time: 5.04s
+[D1, D2] one job at a time, real progress failures and vision timeouts
+ pages  complete      stuck     dup rows error vs truth  worst error  mean time
+    40         2          3      1.4/run         +3.08%       +5.93%      3.02s
+    96         1          4      3.0/run         +2.16%       +4.21%      4.02s
+   120         0          5      7.0/run         +5.21%       +8.98%      5.01s
+   250         0          5     10.8/run         +4.65%       +6.52%      5.02s
+   500         0          5     20.8/run         +4.30%       +5.61%      5.01s
+[D2] jobs reported 'complete' while pages were still unmeasured
+  example: status=complete pages_done=60 distinct pages stored=59 pending=1
+  4 of 5 'complete' 60-page jobs were complete early
+==================== FIXED (/Users/advaith789/Documents/agentic-ai/Candidate/takeoff-pipeline)
+............................................                             [100%]
+44 passed in 5.26s
+[D5] drawings that render identically within one 500-page set
+  0 pages share bytes with an earlier page: -
+[D6] API created_at vs real UTC
+  created_at=2026-11-10T16:34:48Z  skew -0.0 h
+[D3] same set re-run at a corrected scale within the memo TTL
+  scale 96 total: reported 8,801.79  truth 8,801.79  error +0.00%
+[D4] 10 different ~120-page sets submitted together (a busy morning)
+  flags.SHARED_GATE = True
+  vision 429s: 0  extra attempts: 26  pages missing from totals (excl. corrupt): 0 of 1235  wall time: 0.50s
+[D1, D2] one job at a time, real progress failures and vision timeouts
+ pages  complete      stuck     dup rows error vs truth  worst error  mean time
+    40         5          0      0.0/run         +0.00%       +0.00%      0.03s
+    96         5          0      0.0/run         +0.00%       +0.00%      0.06s
+   120         5          0      0.0/run         +0.00%       +0.00%      0.07s
+   250         5          0      0.0/run         +0.00%       +0.00%      0.12s
+   500         5          0      0.0/run         +0.00%       +0.00%      0.23s
+[D2] jobs reported 'complete' while pages were still unmeasured
+  0 of 20 'complete' 60-page jobs were complete early

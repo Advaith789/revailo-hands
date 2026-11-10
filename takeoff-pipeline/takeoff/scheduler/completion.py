@@ -12,7 +12,15 @@ from ..storage import repo_jobs
 
 
 def is_settled(row):
-    return row["pages_done"] == row["total_pages"]
+    """Every page has reached a terminal state: measured or failed.
+
+    Failed pages count. Every set with 97 or more pages contains an
+    unrenderable page, so ``pages_done`` alone can never reach
+    ``total_pages`` for them. Equality (not >=) is deliberate: the counters
+    are exact, and an overcount should surface as 'stuck', not as a job
+    declared complete early.
+    """
+    return row["pages_done"] + row["pages_failed"] == row["total_pages"]
 
 
 def wait_for_settle(db, job_id, timeout_s, poll_s):
