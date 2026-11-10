@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 .terraform/
 *.tfstate*
+cloud/build/
+.terraform.tfstate.lock.info
