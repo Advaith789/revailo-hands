@@ -1,61 +1,51 @@
-# Part 2: cloud proof
+# Part 2: proof it ran on AWS
 
 | | |
 |---|---|
 | **Region** | `us-east-2` |
-| **Run (UTC)** | 2026-11-10T18:06:24Z (apply) to about 18:08Z (destroy verified) |
-| **Account** | Redacted as `<account-id>` in all output |
-| **Caller** | IAM user `terraform-demo`, created for this run and deleted afterwards |
-| **Tools** | Terraform v1.17.1, AWS provider `~> 6.0`, aws-cli 1.46.3 |
-| **Full logs** | [proof/run-20261110T180623Z.log](proof/run-20261110T180623Z.log) is the passing run. [proof/run-20261110T180407Z.log](proof/run-20261110T180407Z.log) is the first, failed run (see section 5). |
+| **When (UTC)** | 2026-11-10, deployed at 18:06:24, torn down and checked by about 18:08 |
+| **Account** | Hidden. Every account number in the output shows as `<account-id>`. |
+| **Who ran it** | An IAM user called `terraform-demo`, made just for this and deleted afterwards |
+| **Tools** | Terraform 1.17.1, AWS provider 6.x, AWS CLI 1.46.3 |
+| **Full logs** | [proof/run-20261110T180623Z.log](proof/run-20261110T180623Z.log) is the run that passed. [proof/run-20261110T180407Z.log](proof/run-20261110T180407Z.log) is the first run, which failed (see section 5). |
 
-## What is deployed
+## What gets built
 
-All of it is created by the Terraform in this directory (9 resources):
+Terraform creates all of it, 9 resources in total:
 
-- **`aws_sfn_state_machine.pages`:** a Standard state machine. A `Map` over `$.pages` (MaxConcurrency 3) runs one `lambda:invoke` task per page. Each item gets `job_id`, `page_no` and the execution name. Only transient Lambda-service errors are retried, with exponential backoff and full jitter.
-- **`aws_lambda_function.worker`:** Python 3.13 on arm64 ([lambda/worker.py](lambda/worker.py)). It writes `area_sqft = page_no * 10` with `PutItem` and the condition `attribute_not_exists(job_id)`. If the row already exists, the worker returns `stored: false` and succeeds, so a replay can neither add a row nor change one.
-- **`aws_dynamodb_table.results`:** on-demand capacity, partition key `job_id` (S), sort key `page_no` (N). It is read with `Query` by `job_id`, never with `Scan`.
-- **`aws_cloudwatch_log_group.worker`:** the worker's log group, managed by Terraform with 1-day retention. It is created before the function, so Lambda never creates an unmanaged one.
-- **IAM roles:**
-  - The worker role can only `dynamodb:PutItem` on the one table, and `logs:CreateLogStream`/`PutLogEvents` on the one log group.
-  - The state machine role can only `lambda:InvokeFunction` on the one function and its versions. Its trust policy is limited by `aws:SourceAccount`.
-- **`time_sleep.iam_propagation`:** a 15-second wait for IAM propagation before the state machine is created (see section 5).
-- **Outputs:** `state_machine_arn` and `table_name`.
+- **A Standard Step Functions state machine.** A Map step goes over `pages` and calls the worker Lambda once per page, up to 3 at a time. Each call gets the job ID, the page number and the execution name. It only retries short-lived Lambda service errors.
+- **The worker Lambda** (Python 3.13, [lambda/worker.py](lambda/worker.py)). It writes `area_sqft = page_no * 10` using "only save if this row doesn't exist yet". If the row's already there, it returns `stored: false` and still succeeds. So running the job again can't add a row or change one.
+- **A DynamoDB table** with on-demand billing, keyed on `job_id` and then `page_no`. I read it with a query by job ID, never a full table scan.
+- **The Lambda's log group,** made by Terraform with 1-day retention. It's created before the Lambda so AWS doesn't make its own unmanaged one.
+- **Two IAM roles, each limited to one resource.** The Lambda can only write to this one table and its own log group. The state machine can only call this one Lambda.
+- **A 15-second wait** before the state machine is created, so IAM has time to catch up. Section 5 explains why.
 
-Nothing in the stack costs money while idle: no VPC, NAT, EC2, RDS or provisioned concurrency.
+Nothing here costs money while it sits idle: no VPC, NAT, EC2, RDS or reserved capacity.
 
-The worker's logic is also covered locally: run `cd cloud/lambda && python -m pytest`. That gives 8 passed, using an in-memory stand-in for DynamoDB's conditional put.
+I also tested the worker locally with a fake table: run `cd cloud/lambda && python -m pytest`, which gives 8 passed.
 
-## How to reproduce
+## Run it yourself
 
-You need AWS credentials and Terraform 1.6 or later. One command does everything below and writes a redacted log to `cloud/proof/`:
+You need AWS credentials and Terraform 1.6 or newer. One command does everything and saves a log to `cloud/proof/` with the account number hidden:
 
 ```bash
 cloud/prove.sh
 ```
 
-`prove.sh` runs these steps in order, and it destroys the stack even if the smoke test fails:
-1. `terraform init`
-2. `terraform fmt -check -recursive`
-3. `terraform validate`
-4. `terraform apply -auto-approve`
-5. `./smoke.sh`
-6. `terraform destroy -auto-approve`
-7. `./verify_destroyed.sh`
+It runs init, fmt-check, validate, apply, the smoke test, destroy, and a final "is it all gone" check. It tears the stack down even if the smoke test fails.
 
-The individual pieces:
+Or step by step:
 
 ```bash
 cd cloud
 terraform init && terraform apply
-./smoke.sh                       # two executions, same job id; exits non-zero on any mismatch
-JOB_ID=my-job ./smoke.sh         # choose the job id
+./smoke.sh                  # two runs with the same job ID; fails loudly on any mismatch
+JOB_ID=my-job ./smoke.sh    # pick your own job ID
 terraform destroy
-./verify_destroyed.sh            # exits non-zero if anything remains
+./verify_destroyed.sh       # fails if anything is left behind
 ```
 
-## 1. Region and timestamp
+## 1. Region and time
 
 ```
 ================ context
@@ -65,7 +55,7 @@ aws-cli/1.46.3 Python/3.12.12 Darwin/25.5.0 botocore/1.43.62
 arn:aws:iam::<account-id>:user/terraform-demo
 ```
 
-## 2. fmt, validate, apply, and the execution reaching SUCCEEDED
+## 2. fmt, validate, apply, and the run reaching SUCCEEDED
 
 ```
 $ terraform fmt -check -recursive
@@ -92,24 +82,24 @@ state_machine_arn = "arn:aws:states:us-east-2:<account-id>:stateMachine:revailo-
 table_name = "revailo-takeoff-demo-results"
 ```
 
-First execution. The start and stop times print as epoch seconds; in UTC they are 18:07:04.055Z and 18:07:07.524Z.
+The first run is below. The start and stop times print as seconds since 1970; in UTC that's 18:07:04.055 to 18:07:07.524. `$SM_ARN` is the `state_machine_arn` output above, and `$EXEC_ARN` is the execution ARN that `start-execution` returns.
 
 ```
-$ aws stepfunctions start-execution --state-machine-arn <state_machine_arn> \
+$ aws stepfunctions start-execution --state-machine-arn "$SM_ARN" \
     --name smoke-20261110T180703Z-run1-180703 \
     --input '{"job_id":"smoke-20261110T180703Z","pages":[1,2,3]}'
-$ aws stepfunctions describe-execution --execution-arn <arn> --query '[name,status,startDate,stopDate]'
+$ aws stepfunctions describe-execution --execution-arn "$EXEC_ARN" --query '[name,status,startDate,stopDate]'
 smoke-20261110T180703Z-run1-180703	SUCCEEDED	1794334024.055	1794334027.524
-$ aws stepfunctions describe-execution --execution-arn <arn> --query output
+$ aws stepfunctions describe-execution --execution-arn "$EXEC_ARN" --query output
 {"job_id":"smoke-20261110T180703Z","pages":[1,2,3],"results":[
   {"job_id":"smoke-20261110T180703Z","page_no":1,"area_sqft":10,"stored":true},
   {"job_id":"smoke-20261110T180703Z","page_no":2,"area_sqft":20,"stored":true},
   {"job_id":"smoke-20261110T180703Z","page_no":3,"area_sqft":30,"stored":true}]}
 ```
 
-## 3. Table contents after the first execution and after the replay
+## 3. The table after the first run and after the replay
 
-After the first execution:
+After the first run:
 
 ```
 $ aws dynamodb query --table-name revailo-takeoff-demo-results --consistent-read \
@@ -124,21 +114,21 @@ $ aws dynamodb query --table-name revailo-takeoff-demo-results --consistent-read
 OK (after first execution): exactly 3 rows, areas 10/20/30
 ```
 
-The replay used a **new execution name** and the **same job ID**:
+Then the replay, with a new execution name and the same job ID:
 
 ```
-$ aws stepfunctions start-execution --state-machine-arn <state_machine_arn> \
+$ aws stepfunctions start-execution --state-machine-arn "$SM_ARN" \
     --name smoke-20261110T180703Z-replay-180711 \
     --input '{"job_id":"smoke-20261110T180703Z","pages":[1,2,3]}'
-$ aws stepfunctions describe-execution --execution-arn <arn> --query '[name,status,startDate,stopDate]'
+$ aws stepfunctions describe-execution --execution-arn "$EXEC_ARN" --query '[name,status,startDate,stopDate]'
 smoke-20261110T180703Z-replay-180711	SUCCEEDED	1794334032.052	1794334032.209
-$ aws stepfunctions describe-execution --execution-arn <arn> --query output
+$ aws stepfunctions describe-execution --execution-arn "$EXEC_ARN" --query output
 {"job_id":"smoke-20261110T180703Z","pages":[1,2,3],"results":[
   {"job_id":"smoke-20261110T180703Z","page_no":1,"area_sqft":10,"stored":false},
   {"job_id":"smoke-20261110T180703Z","page_no":2,"area_sqft":20,"stored":false},
   {"job_id":"smoke-20261110T180703Z","page_no":3,"area_sqft":30,"stored":false}]}
 
-$ aws dynamodb query ... (same command as above)
+$ aws dynamodb query ...   (same query as above)
 +-------------------------+----+-----+--------------------------------------+
 |  smoke-20261110T180703Z |  1 |  10 |  smoke-20261110T180703Z-run1-180703  |
 |  smoke-20261110T180703Z |  2 |  20 |  smoke-20261110T180703Z-run1-180703  |
@@ -147,9 +137,9 @@ $ aws dynamodb query ... (same command as above)
 OK (after replay with same job id, new execution name): exactly 3 rows, areas 10/20/30
 ```
 
-The replay succeeded with `stored: false` for every page. The table still has exactly three rows with the same values, and `first_execution` still names run 1, which shows the replay did not overwrite anything. `smoke.sh` compares the query result to exactly `1→10, 2→20, 3→30` and exits non-zero otherwise. Here it exited 0.
+The replay succeeded, and every page said `stored: false`. The table still has the same three rows with the same values. The last column still shows run 1 as the writer, so the replay didn't overwrite anything. `smoke.sh` checks for exactly 1→10, 2→20, 3→30 and fails if it sees anything else. Here it passed.
 
-## 4. Destroy and the final check
+## 4. Tear-down and the final check
 
 ```
 $ terraform destroy -input=false -auto-approve
@@ -169,11 +159,11 @@ gone: log group /aws/lambda/revailo-takeoff-demo-worker -> (no match)
 smoke exit=0  verify_destroyed exit=0
 ```
 
-The `terraform-demo` IAM user and its access key were created by hand for this run, outside Terraform, and then deleted.
+I made the `terraform-demo` user and its access key by hand, outside Terraform, and deleted them after the run.
 
-## 5. What I could not verify, and the next failure mode to test
+## 5. What I couldn't check, and what I'd test next
 
-**A failure that actually happened.** The first `prove.sh` run ([proof/run-20261110T180407Z.log](proof/run-20261110T180407Z.log)) applied cleanly. Then the first execution failed about 2 seconds after the state machine was created:
+**The first run failed, and I kept the log.** In [proof/run-20261110T180407Z.log](proof/run-20261110T180407Z.log), everything deployed fine, but the first execution failed about 2 seconds after the state machine was created:
 
 ```
 Lambda.AWSLambdaException  User: arn:aws:sts::<account-id>:assumed-role/revailo-takeoff-demo-sfn/... is not
@@ -181,22 +171,22 @@ authorized to perform: lambda:InvokeFunction on resource: arn:aws:lambda:us-east
 because no identity-based policy allows the lambda:InvokeFunction action (... Status Code: 403 ...)
 ```
 
-The policy allowed exactly that ARN, but IAM is eventually consistent and the new inline policy hadn't propagated yet. The script still destroyed the stack and confirmed it was gone.
+The permission was correct. IAM just hadn't caught up yet, because new permissions take a few seconds to reach every part of AWS. The script still tore everything down and confirmed it was gone.
 
-**The fix.** A `time_sleep` of 15 seconds after both role policies, before the state machine is created. I deliberately did **not** add `AccessDenied` to the state machine's `Retry`, because that would also hide real permission mistakes. The second run passed.
+**The fix.** Terraform now waits 15 seconds after creating the permissions, before it builds the state machine. I didn't make the state machine retry on "access denied", because that would also hide real permission mistakes. The second run passed.
 
-**What I could not verify:**
-- **Retries of the same execution.** The replay test reruns the whole job under a new execution name. I didn't force a Lambda-service error mid-Map to watch Step Functions' own `Retry` redeliver a page within the same execution. The conditional put makes that safe by construction, and the local unit test `test_replay_succeeds_without_changing_the_row` covers the logic, but it wasn't observed in AWS.
-- **Concurrent first writes.** I didn't test two executions racing on the same job at the same moment. DynamoDB conditional writes are atomic per item, so exactly one write should win, but I didn't observe it.
-- **Cost.** Not measured directly. The stack existed for about 2 minutes, and everything in it is on-demand.
-- **The 15-second wait.** It is a timing-based mitigation, not a guarantee. IAM propagation has no hard upper bound.
+**What I couldn't check:**
+- **A retry inside a single run.** I didn't force a Lambda error partway through to watch Step Functions retry a page within the same run. The "only save if it doesn't exist" rule should make that safe, and the local unit test covers it, but I didn't see it happen on AWS.
+- **Two runs racing.** I didn't start two runs for the same job at the exact same moment. DynamoDB should let exactly one write win, but I didn't watch it happen.
+- **Cost.** I didn't measure it. The stack was up for about 2 minutes, and everything is pay-per-use.
+- **The 15-second wait.** It's a timing fix, not a guarantee. AWS doesn't promise how long IAM takes to catch up.
 
-**The next failure mode I'd test: a page whose processing fails permanently.** A bad page (here, an invalid `page_no`; in production, the corrupt pages from Part 1) raises an error that is not retried. That fails the `Map`, and so the **whole execution**, so the other pages' results are stored but the job looks failed. The test would send `{"job_id":"x","pages":[1,0,3]}`. I'd expect `FAILED` with rows only for 1 and 3. I'd then decide between a per-item `Catch` that records the page as failed, or a `ToleratedFailurePercentage`, so a single bad page doesn't fail a 500-page job. This is the cloud version of Part 1's D2.
+**What I'd test next: one bad page.** Right now, one page that can't be processed fails the whole Map, and so the whole run, even though the other pages saved fine. I'd send `{"job_id":"x","pages":[1,0,3]}` and expect a failed run with rows for pages 1 and 3 only. Then I'd add a per-page catch that records the bad page as failed, so one broken page doesn't sink a 500-page job. That's the cloud version of D2 in Part 1.
 
-## Shared vision limit and Lambda-specific mechanisms
+## The shared limit of 10
 
-The `Map` `MaxConcurrency` here limits one execution only. How I'd enforce the account-wide limit of ten calls across jobs and environments, and which of my Part 1 fixes need a different mechanism once each page runs in its own Lambda, is covered in [takeoff-pipeline/REPORT.md](../takeoff-pipeline/REPORT.md#production-the-shared-vision-limit-and-which-local-fixes-need-a-different-mechanism).
+The Map's limit of 3 only applies within one run. How I'd keep the whole account to 10 calls across every job and environment, and which Part 1 fixes need to work differently once each page has its own Lambda, is covered in [takeoff-pipeline/REPORT.md](../takeoff-pipeline/REPORT.md#production-the-shared-limit-and-what-changes-in-lambda).
 
-## Not submitted
+## Not included
 
-No `.terraform/`, Terraform state, build zips or credentials. All are in `.gitignore`, and the logs are redacted. `.terraform.lock.hcl` *is* committed, so provider versions are pinned.
+No `.terraform/` folder, no Terraform state, no build zips and no credentials. They're all in `.gitignore`, and the logs have the account number hidden. The provider lock file is included, so everyone gets the same provider versions.
