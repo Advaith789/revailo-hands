@@ -141,6 +141,21 @@ resource "aws_iam_role_policy" "sfn" {
   policy = data.aws_iam_policy_document.sfn.json
 }
 
+# IAM is eventually consistent. The first apply ran an execution ~2 s after
+# the roles' policies were created and got AccessDenied on
+# lambda:InvokeFunction even though the policy allows exactly that ARN
+# (cloud/proof/run-20261110T180407Z.log). Wait for propagation before
+# creating the state machine, the first thing to use them, rather than retrying on
+# AccessDenied, which would also hide genuine permission mistakes.
+resource "time_sleep" "iam_propagation" {
+  create_duration = "15s"
+
+  triggers = {
+    worker_policy = aws_iam_role_policy.worker.policy
+    sfn_policy    = aws_iam_role_policy.sfn.policy
+  }
+}
+
 resource "aws_sfn_state_machine" "pages" {
   name     = "${var.name}-pages"
   type     = "STANDARD"
@@ -195,5 +210,5 @@ resource "aws_sfn_state_machine" "pages" {
     }
   })
 
-  depends_on = [aws_iam_role_policy.sfn]
+  depends_on = [time_sleep.iam_propagation]
 }

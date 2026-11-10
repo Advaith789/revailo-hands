@@ -16,7 +16,7 @@ gone() {  # gone <description> <command...>: command must fail with a not-found 
   if out="$("$@" 2>&1)"; then
     echo "STILL EXISTS: $what"; left=1
   else
-    echo "gone: $what -> $(echo "$out" | grep -oE '[A-Za-z]+(NotFound|DoesNotExist|NoSuchEntity)[A-Za-z]*' | head -1)"
+    echo "gone: $what -> $(echo "$out" | grep -oE '[A-Za-z]*(NotFound|DoesNotExist|NoSuchEntity)[A-Za-z]*' | head -1)"
   fi
 }
 
