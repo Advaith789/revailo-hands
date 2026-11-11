@@ -65,11 +65,13 @@ The git tag `original` holds the code exactly as received. Result: **original 16
 ### D7. Database closed mid-write (local only)
 - **Test:** `test_d7_closing_the_database_waits_for_an_in_flight_write`.
 - **Fix:** `close()` now waits for any write in progress.
+- **Before → after:** The original closed the database in the middle of a write (and crashed the test run). After the fix, close waits until the write finishes.
 - **Why:** The original test run crashed while I was reproducing D2: a test closed the database while a page was still writing. This does not affect production.
 
 ### D8. Lambda handler has no limiter
 - **Test:** `test_d8_lambda_handler_works_with_a_json_only_event`.
 - **Fix:** The handler falls back to the shared limiter.
+- **Before → after:** `TypeError` on a plain JSON event. After the fix, the page is measured and saved.
 - **Why:** It expected a limiter inside the event, but a real Lambda event is plain JSON, so every cache miss crashed with a `TypeError`.
 
 ---
